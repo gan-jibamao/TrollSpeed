@@ -1,0 +1,95 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fps-inline
+
+env:
+  THEOS: ''
+  XCODE_VERSION: '15.4'
+
+jobs:
+  build:
+    name: Build tipa and debs
+    runs-on: macos-14
+
+    steps:
+      - name: Setup Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Install Homebrew dependencies
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install dpkg make libplist openssl@3 ldid-procursus
+          echo "/usr/local/opt/make/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Checkout roothide/theos
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/theos
+          path: theos
+          submodules: recursive
+
+      - name: Add THEOS environment variables
+        run: |
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+
+      - name: Checkout theos/sdks
+        uses: actions/checkout@v4
+        with:
+          repository: theos/sdks
+          ref: master
+          path: ${{ env.THEOS }}/sdks
+
+      - name: Checkout TrollSpeed
+        uses: actions/checkout@v4
+        with:
+          path: TrollSpeed
+
+      - name: Setup build environment
+        run: |
+          echo "FINALPACKAGE=1" >> $GITHUB_ENV
+          cd $GITHUB_WORKSPACE/TrollSpeed
+          echo "TIPA_VERSION=$(./get-version.sh)" >> $GITHUB_ENV
+          command -v xcpretty >/dev/null 2>&1 || sudo gem install xcpretty --no-document
+
+      - name: Build tipa (TrollStore)
+        run: |
+          cd $GITHUB_WORKSPACE/TrollSpeed
+          ./gen-control.sh
+          ./build.sh
+
+      - name: Build debs (rootless, roothide, rootful)
+        continue-on-error: true
+        run: |
+          cd $GITHUB_WORKSPACE/TrollSpeed
+          set +e
+          for scheme in rootless roothide rootful; do
+            echo "::group::gmake package ($scheme)"
+            if [ "$scheme" = "rootful" ]; then
+              FINALPACKAGE=1 gmake clean package
+            else
+              THEOS_PACKAGE_SCHEME=$scheme FINALPACKAGE=1 gmake clean package
+            fi
+            echo ">> $scheme exit=$?"
+            echo "::endgroup::"
+          done
+          ls -la packages
+
+      - name: List packages
+        run: |
+          cd $GITHUB_WORKSPACE/TrollSpeed
+          ls -la packages || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrollSpeed_${{ env.TIPA_VERSION }}
+          path: |
+            TrollSpeed/packages/*.tipa
+            TrollSpeed/packages/*.deb
+          if-no-files-found: warn
