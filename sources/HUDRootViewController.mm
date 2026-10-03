@@ -112,7 +112,10 @@ static void SpringBoardLockStatusChanged
 #define GIGABYTES (1 << 30)
 #define UPDATE_INTERVAL 1.0
 #define SHOW_ALWAYS 1
-#define INLINE_SEPARATOR "\t"
+/* A fixed-width gap. A literal tab advances to the next tab stop, so the gap
+   between the two speed readouts grew and shrank with the width of the value in
+   front of it; non-breaking spaces keep it the same on every frame. */
+#define INLINE_SEPARATOR "\u00A0\u00A0\u00A0\u00A0"
 #define IDLE_INTERVAL 3.0
 
 static const double HUD_MIN_FONT_SIZE = 9.0;
@@ -334,7 +337,6 @@ static NSAttributedString *attributedUploadPrefix = nil;
 static NSAttributedString *attributedDownloadPrefix = nil;
 static NSAttributedString *attributedInlineSeparator = nil;
 static NSAttributedString *attributedLineSeparator = nil;
-static NSAttributedString *attributedFPSPrefixSeparator = nil;
 
 static NSAttributedString *formattedAttributedString(BOOL isFocused)
 {
@@ -502,14 +504,14 @@ static NSAttributedString *formattedFPSWithSpeedAttributedString(BOOL isFocused)
 
         if (!attributedLineSeparator)
             attributedLineSeparator = [[NSAttributedString alloc] initWithString:@"\n" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
-        if (!attributedFPSPrefixSeparator)
-            attributedFPSPrefixSeparator = [[NSAttributedString alloc] initWithString:@"\u00A0\u00A0" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
+        if (!attributedInlineSeparator)
+            attributedInlineSeparator = [[NSAttributedString alloc] initWithString:[NSString stringWithUTF8String:INLINE_SEPARATOR] attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
 
         BOOL speedFitsOnOneLine = ([speedString.string rangeOfString:@"\n"].location == NSNotFound);
 
         NSMutableAttributedString *mutableString = [[NSMutableAttributedString alloc] init];
         [mutableString appendAttributedString:fpsString];
-        [mutableString appendAttributedString:(speedFitsOnOneLine ? attributedFPSPrefixSeparator : attributedLineSeparator)];
+        [mutableString appendAttributedString:(speedFitsOnOneLine ? attributedInlineSeparator : attributedLineSeparator)];
         [mutableString appendAttributedString:speedString];
 
         return [mutableString copy];
@@ -662,7 +664,6 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
     attributedDownloadPrefix = nil;
     attributedInlineSeparator = nil;
     attributedLineSeparator = nil;
-    attributedFPSPrefixSeparator = nil;
 
     [self removeAllAnimations];
     [self resetGestureRecognizers];
