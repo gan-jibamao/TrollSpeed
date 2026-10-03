@@ -339,6 +339,11 @@ static const CGFloat _gAuthorLabelBottomConstraintConstantRegular = -80.f;
 {
     [_userDefaults writeToFile:(JBROOT_PATH_NSSTRING(USER_DEFAULTS_PATH)) atomically:YES];
     notify_post(NOTIFY_RELOAD_HUD);
+
+    /* Toggling a setting is the moment the mismatch becomes visible, so repair
+       a HUD left over from a previous build here rather than waiting for the
+       app to be backgrounded. */
+    HUDReloadIfStale();
 }
 
 - (BOOL)isLandscapeOrientation

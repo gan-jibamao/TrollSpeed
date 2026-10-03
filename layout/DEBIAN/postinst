@@ -2,70 +2,101 @@
 #
 # TrollSpeed
 #
-# The HUD is a long-lived process of its own: it is started once and then kept
-# alive, either by launchd (ch.xxtou.hudservices.plist) or by the app through
-# posix_spawn. Upgrading the package replaces the binary on disk but does NOT
-# touch that running process, which then keeps executing the previous build.
+# The HUD is a long-lived process of its own: started once, then kept alive by
+# launchd (ch.xxtou.hudservices.plist) or by the app through posix_spawn.
+# Upgrading the package replaces the binary on disk but does NOT touch that
+# running process, which keeps executing the previous build.
 #
 # That is fatal whenever a preference changes meaning. A displayMode of 2 is a
-# plain YES to a binary that only knew a boolean toggle, so a stale HUD shows
+# plain YES to a binary that only knew a boolean toggle, so a stale HUD renders
 # the FPS-only layout while the setting reads "FPS + Speed".
 #
-# Stop the running HUD here whenever one was actually up, so launchd brings the
-# newly installed binary back through KeepAlive. A user who had the HUD switched
-# off is left alone - no pid file, nothing to do.
+# Stop the running HUD whenever one was actually up, so launchd brings the
+# freshly installed binary back through KeepAlive. A user who had the HUD
+# switched off is left alone - nothing was running, nothing is started.
 #
 
 LABEL="ch.xxtou.hudservices"
-PID_PATH_MOBILE="/var/mobile/Library/Caches/ch.xxtou.hudapp.pid"
+
+# ---------------------------------------------------------------------------
+# 1. Locate pid files. The HUD writes its pid through the jbroot() resolver, so
+#    the file lands in a different place per install layout. Globs cover the
+#    roothide per-container path, whose random suffix is not knowable here.
+# ---------------------------------------------------------------------------
 
 was_running=""
 
-kill_from_pid_file() {
-    pidfile="$1"
-    [ -f "$pidfile" ] || return 0
+sweep_pid_files() {
+    for pattern in "$@"; do
+        for pidfile in $pattern; do
+            [ -f "$pidfile" ] || continue
 
-    was_running="yes"
+            was_running="yes"
 
-    pid=$(cat "$pidfile" 2>/dev/null)
-    case "$pid" in
-        ''|*[!0-9]*) ;;
-        *) kill -9 "$pid" 2>/dev/null || true ;;
-    esac
+            pid=$(cat "$pidfile" 2>/dev/null)
+            case "$pid" in
+                ''|*[!0-9]*) ;;
+                *)
+                    kill -9 "$pid" 2>/dev/null || true
+                    ;;
+            esac
 
-    rm -f "$pidfile" 2>/dev/null || true
+            rm -f "$pidfile" 2>/dev/null || true
+        done
+    done
 }
 
-# Let the freshly installed binary terminate the old HUD through its own
-# sanctioned path; it resolves its pid file with the right jbroot prefix.
-for exe in /var/jb/Applications/TrollSpeed.app/TrollSpeed \
-           /Applications/TrollSpeed.app/TrollSpeed; do
+sweep_pid_files \
+    "/var/mobile/Library/Caches/ch.xxtou.hudapp.pid" \
+    "/var/jb/var/mobile/Library/Caches/ch.xxtou.hudapp.pid" \
+    "/var/containers/Bundle/Application/.jbroot-*/var/mobile/Library/Caches/ch.xxtou.hudapp.pid" \
+    "/var/containers/Bundle/Application/.jbroot-*/var/jb/var/mobile/Library/Caches/ch.xxtou.hudapp.pid"
+
+# ---------------------------------------------------------------------------
+# 2. Let the freshly installed binary stop the old HUD through its own -exit
+#    path. It resolves the pid file with the correct jbroot prefix, so this
+#    works even when the guesses above miss.
+# ---------------------------------------------------------------------------
+
+for exe in \
+    /var/jb/Applications/TrollSpeed.app/TrollSpeed \
+    /Applications/TrollSpeed.app/TrollSpeed \
+    /var/containers/Bundle/Application/.jbroot-*/Applications/TrollSpeed.app/TrollSpeed \
+    /var/containers/Bundle/Application/.jbroot-*/var/jb/Applications/TrollSpeed.app/TrollSpeed
+do
     [ -x "$exe" ] || continue
     "$exe" -exit >/dev/null 2>&1 || true
 done
 
-# Then the explicit sweep, covering every layout this package installs into.
-kill_from_pid_file "$PID_PATH_MOBILE"                # rootful
-kill_from_pid_file "/var/jb$PID_PATH_MOBILE"         # rootless
-for candidate in /var/containers/Bundle/Application/.jbroot-*"$PID_PATH_MOBILE"; do
-    [ -e "$candidate" ] || continue
-    kill_from_pid_file "$candidate"                  # roothide
-done
+# ---------------------------------------------------------------------------
+# 3. Anything still holding the old executable mapped - only used to decide
+#    whether the service should come back up, since the kill above may already
+#    have removed the pid file.
+# ---------------------------------------------------------------------------
 
-# Belt and braces, in case no pid file pointed at the process any more.
 if command -v ps >/dev/null 2>&1; then
     ps -Ao pid,comm 2>/dev/null | while read -r pid comm; do
         case "$comm" in
-            *TrollSpeed*) kill -9 "$pid" 2>/dev/null || true ;;
+            *TrollSpeed*)
+                was_running="yes"
+                kill -9 "$pid" 2>/dev/null || true
+                ;;
         esac
     done
 fi
 
-# Bring the service back up from the new binary. When it is still loaded launchd
-# has already respawned it via KeepAlive and this fails harmlessly.
+# ---------------------------------------------------------------------------
+# 4. Bring the service back up from the new binary. When it is still loaded
+#    launchd has already respawned it via KeepAlive and this fails harmlessly.
+# ---------------------------------------------------------------------------
+
 if [ -n "$was_running" ]; then
-    for plist in /var/jb/Library/LaunchDaemons/"$LABEL".plist \
-                 /Library/LaunchDaemons/"$LABEL".plist; do
+    for plist in \
+        /var/jb/Library/LaunchDaemons/"$LABEL".plist \
+        /Library/LaunchDaemons/"$LABEL".plist \
+        /var/containers/Bundle/Application/.jbroot-*/Library/LaunchDaemons/"$LABEL".plist \
+        /var/containers/Bundle/Application/.jbroot-*/var/jb/Library/LaunchDaemons/"$LABEL".plist
+    do
         [ -f "$plist" ] || continue
         command -v launchctl >/dev/null 2>&1 || break
         launchctl load "$plist" >/dev/null 2>&1 || true

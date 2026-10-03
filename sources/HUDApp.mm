@@ -123,7 +123,9 @@ int main(int argc, char *argv[])
             (void)pgid;
             log_debug(OS_LOG_DEFAULT, "HUD pid %d, pgid %d", pid, pgid);
 
-            NSString *pidString = [NSString stringWithFormat:@"%d", pid];
+            /* Record the build alongside the pid so the app can spot a HUD
+               that survived an upgrade and is still running old code. */
+            NSString *pidString = [NSString stringWithFormat:@"%d %@", pid, HUDBuildVersionString()];
             [pidString writeToFile:pidPath
                         atomically:YES
                           encoding:NSUTF8StringEncoding
@@ -190,9 +192,27 @@ int main(int argc, char *argv[])
 
             if (pidString)
             {
-                pid_t pid = (pid_t)[pidString intValue];
-                int killed = kill(pid, 0);
-                return (killed == 0 ? EXIT_FAILURE : EXIT_SUCCESS);
+                NSArray *parts = [pidString componentsSeparatedByString:@" "];
+                pid_t pid = (pid_t)[parts.firstObject intValue];
+
+                if (kill(pid, 0) != 0) {
+                    unlink([pidPath UTF8String]);
+                    return EXIT_SUCCESS;    // Recorded process is gone
+                }
+
+                NSString *recorded = (parts.count > 1) ? parts[1] : nil;
+
+                /* An empty record means the pid file predates this mechanism,
+                   so whatever it points at is running an older build. */
+                if (!recorded.length || ![recorded isEqualToString:HUDBuildVersionString()]) {
+                    /* A HUD from a previous build is still holding the screen.
+                       Report not-running so the app starts a fresh one. */
+                    kill(pid, SIGKILL);
+                    unlink([pidPath UTF8String]);
+                    return EXIT_SUCCESS;
+                }
+
+                return EXIT_FAILURE;
             }
             else return EXIT_SUCCESS;  // No PID file, so HUD is not running
         }

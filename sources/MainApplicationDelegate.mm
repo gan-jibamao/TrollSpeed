@@ -77,6 +77,10 @@
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^(void) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
+        /* Coming back to the foreground is the right moment to notice that a
+           new build was installed while a HUD from the previous one was still
+           running, and to replace it. */
+        HUDReloadIfStale();
         [strongSelf->_rootViewController reloadMainButtonState];
     });
 }

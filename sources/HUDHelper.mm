@@ -7,12 +7,15 @@
 
 #import <spawn.h>
 #import <notify.h>
+#import <signal.h>
 #import <mach-o/dyld.h>
 
 #import "HUDHelper.h"
 #import "NSUserDefaults+Private.h"
 
 extern "C" char **environ;
+
+#define PID_PATH "/var/mobile/Library/Caches/ch.xxtou.hudapp.pid"
 
 #define POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE 1
 extern "C" int posix_spawnattr_set_persona_np(const posix_spawnattr_t* __restrict, uid_t, uint32_t);
@@ -61,6 +64,80 @@ BOOL IsHUDEnabled(void)
     } while (!WIFEXITED(status) && !WIFSIGNALED(status));
 
     return WEXITSTATUS(status) != 0;
+}
+
+NSString *HUDBuildVersionString(void)
+{
+    return [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] ?: @"0";
+}
+
+NSString *HUDPidFilePath(void)
+{
+    static NSString *path = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        path = [NSString stringWithUTF8String:JBROOT_PATH_CSTRING(PID_PATH)];
+    });
+    return path;
+}
+
+/*
+ * The HUD is a long-lived process started once and then kept alive, either by
+ * launchd or by this app through posix_spawn. Installing a new build replaces
+ * the file on disk but leaves that process running the previous code, so the
+ * HUD keeps interpreting the preferences the old way.
+ *
+ * The pid file records the build the running HUD came from, so the mismatch is
+ * detectable here. This repairs it from inside the app, which means it works no
+ * matter how the package was installed - no maintainer script required.
+ */
+void HUDReloadIfStale(void)
+{
+    NSString *pidPath = HUDPidFilePath();
+    NSString *contents = [NSString stringWithContentsOfFile:pidPath
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:nil];
+    if (contents.length == 0)
+        return;                     /* Nothing is running, nothing to repair */
+
+    NSCharacterSet *trimSet = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSArray *parts = [[contents stringByTrimmingCharactersInSet:trimSet]
+                      componentsSeparatedByString:@" "];
+
+    pid_t pid = (pid_t)[parts.firstObject intValue];
+    NSString *recorded = (parts.count > 1) ? parts[1] : nil;
+    NSString *current = HUDBuildVersionString();
+
+    if (pid <= 0)
+        return;
+
+    if (kill(pid, 0) != 0) {
+        /* The recorded process is gone; the pid file is just debris. */
+        [[NSFileManager defaultManager] removeItemAtPath:pidPath error:nil];
+        return;
+    }
+
+    /* No recorded build means the pid file predates this mechanism, so the
+       running HUD is necessarily from an older build. */
+    if (recorded.length && [recorded isEqualToString:current])
+        return;                     /* Same build, perfectly healthy */
+
+    log_debug(OS_LOG_DEFAULT, "stale HUD %{public}d (%{public}@ != %{public}@), restarting",
+              pid, recorded ?: @"?", current);
+
+    kill(pid, SIGKILL);
+    [[NSFileManager defaultManager] removeItemAtPath:pidPath error:nil];
+
+    /* It was up, so put it back up - now from the newly installed build.
+       launchd may already have respawned it through KeepAlive, so give that a
+       moment and only start a HUD ourselves if nothing came back; starting one
+       unconditionally would leave two processes owning the same window. */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (!IsHUDEnabled()) {
+            SetHUDEnabled(YES);
+        }
+    });
 }
 
 #define LAUNCH_DAEMON_PATH JBROOT_PATH_CSTRING("/Library/LaunchDaemons/ch.xxtou.hudservices.plist")
