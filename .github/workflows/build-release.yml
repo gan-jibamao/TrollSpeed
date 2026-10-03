@@ -50,7 +50,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          repository: Lessica/TrollSpeed
+          repository: ${{ github.repository }}
           ref: main
           path: TrollSpeed
           submodules: recursive

@@ -129,7 +129,12 @@ static uint8_t HUD_SHOW_DOWNLOAD_SPEED_FIRST = 1;
 static uint8_t HUD_SHOW_SECOND_SPEED_IN_NEW_LINE = 0;
 static const char *HUD_UPLOAD_PREFIX = "▲";
 static const char *HUD_DOWNLOAD_PREFIX = "▼";
-static uint8_t HUD_DISPLAY_MODE = 0;  // 0=Speed, 1=FPS
+typedef NS_ENUM(uint8_t, HUDDisplayMode) {
+    HUDDisplayModeSpeed        = 0,  // Network speed only
+    HUDDisplayModeFPS          = 1,  // Frames per second only
+    HUDDisplayModeFPSWithSpeed = 2,  // Frames per second + network speed
+};
+static uint8_t HUD_DISPLAY_MODE = HUDDisplayModeSpeed;
 
 typedef struct {
     uint64_t inputBytes;
@@ -475,6 +480,34 @@ static NSAttributedString *formattedFPSAttributedString(BOOL isFocused)
     }
 }
 
+#pragma mark - FPS + Speed
+
+/* Renders the frame rate first, then the network speed block underneath it,
+   so both readouts stay on screen at the same time. */
+static NSAttributedString *formattedFPSWithSpeedAttributedString(BOOL isFocused)
+{
+    @autoreleasepool
+    {
+        NSAttributedString *fpsString = formattedFPSAttributedString(isFocused);
+        NSAttributedString *speedString = formattedAttributedString(isFocused);
+
+        if (!speedString)
+            return fpsString;   // Speed baseline is not ready yet
+        if (!fpsString)
+            return speedString;
+
+        if (!attributedLineSeparator)
+            attributedLineSeparator = [[NSAttributedString alloc] initWithString:@"\n" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
+
+        NSMutableAttributedString *mutableString = [[NSMutableAttributedString alloc] init];
+        [mutableString appendAttributedString:fpsString];
+        [mutableString appendAttributedString:attributedLineSeparator];
+        [mutableString appendAttributedString:speedString];
+
+        return [mutableString copy];
+    }
+}
+
 #pragma mark - HUDRootViewController
 
 @interface HUDRootViewController (Troll)
@@ -610,8 +643,7 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
         [_containerView setupContainerAsDisplayContentInScreenshots];
     }
 
-    BOOL displayMode = [self displayMode];
-    HUD_DISPLAY_MODE = displayMode;
+    HUD_DISPLAY_MODE = (uint8_t)[self displayMode];
 
     prevInputBytes = 0;
     prevOutputBytes = 0;
@@ -669,11 +701,14 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
     return mode != nil ? [mode boolValue] : NO;
 }
 
-- (BOOL)displayMode
+- (NSInteger)displayMode
 {
     [self loadUserDefaults:NO];
     NSNumber *mode = [_userDefaults objectForKey:HUDUserDefaultsKeyDisplayMode];
-    return mode != nil ? [mode boolValue] : NO;
+    NSInteger value = mode != nil ? [mode integerValue] : HUDDisplayModeSpeed;
+    if (value < HUDDisplayModeSpeed || value > HUDDisplayModeFPSWithSpeed)
+        value = HUDDisplayModeSpeed;
+    return value;
 }
 
 - (BOOL)usesBitrate
@@ -835,8 +870,10 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
 {
     log_debug(OS_LOG_DEFAULT, "updateSpeedLabel");
     NSAttributedString *attributedText;
-    if (HUD_DISPLAY_MODE == 1) {
+    if (HUD_DISPLAY_MODE == HUDDisplayModeFPS) {
         attributedText = formattedFPSAttributedString(_isFocused);
+    } else if (HUD_DISPLAY_MODE == HUDDisplayModeFPSWithSpeed) {
+        attributedText = formattedFPSWithSpeedAttributedString(_isFocused);
     } else {
         attributedText = formattedAttributedString(_isFocused);
     }

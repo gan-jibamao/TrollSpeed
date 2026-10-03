@@ -1,19 +1,18 @@
-name: Analyse Commands
+name: Build FPS + Speed
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main
+      - fps-speed
 
 env:
   THEOS: ''
-  GIT_TAG: ''
-  GIT_COMMIT: ''
   XCODE_VERSION: '15.4'
 
 jobs:
   build:
-    name: Build and generate compilation database
+    name: Build tipa and debs (FPS + Speed)
     runs-on: macos-14
 
     steps:
@@ -46,26 +45,41 @@ jobs:
           ref: master
           path: ${{ env.THEOS }}/sdks
 
-      - name: Checkout
+      - name: Checkout TrollSpeed
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
-          ref: main
           path: TrollSpeed
-          submodules: recursive
 
       - name: Setup build environment
         run: |
-          echo "Available SDKs: $(find $THEOS/sdks -name "*.sdk" -maxdepth 1 -print)"
           echo "FINALPACKAGE=1" >> $GITHUB_ENV
           cd $GITHUB_WORKSPACE/TrollSpeed
-          git fetch --tags
-          echo "GIT_TAG=$(git describe --tags --always --abbrev=0)" >> $GITHUB_ENV
+          echo "TIPA_VERSION=$(./get-version.sh)" >> $GITHUB_ENV
+          command -v xcpretty >/dev/null 2>&1 || sudo gem install xcpretty --no-document
 
-      - name: Build compilation database
+      - name: Build tipa (TrollStore)
         run: |
           cd $GITHUB_WORKSPACE/TrollSpeed
-          ./gen-control.sh ${{ env.GIT_TAG }}
-          THEOS_PACKAGE_SCHEME=rootless gmake commands
-          gmake clean
-          gmake commands
+          ./gen-control.sh
+          ./build.sh
+
+      - name: Build debs (rootful, rootless, roothide)
+        run: |
+          cd $GITHUB_WORKSPACE/TrollSpeed
+          FINALPACKAGE=1 gmake clean package
+          THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 gmake clean package
+          THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 gmake clean package
+
+      - name: List packages
+        run: |
+          cd $GITHUB_WORKSPACE/TrollSpeed
+          ls -la packages || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrollSpeed_FPS-Speed_${{ env.TIPA_VERSION }}
+          path: |
+            TrollSpeed/packages/*.tipa
+            TrollSpeed/packages/*.deb
+          if-no-files-found: warn

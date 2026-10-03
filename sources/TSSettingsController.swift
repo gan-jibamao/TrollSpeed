@@ -9,6 +9,7 @@ import UIKit
 
 @objc public protocol TSSettingsControllerDelegate {
     func settingHighlighted(key: String) -> Bool
+    func settingValue(key: String) -> Int
     func settingDidSelect(key: String) -> Void
 }
 
@@ -27,7 +28,7 @@ import UIKit
     }
 
     open override func settingSubtitle(index: Int, highlighted: Bool) -> String? {
-        return TSSettingsIndex.allCases[index].subtitle(highlighted: highlighted, restartRequired: restartRequired)
+        return TSSettingsIndex.allCases[index].subtitle(highlighted: highlighted, restartRequired: restartRequired, displayMode: displayModeValue)
     }
 
     private func settingKey(index: Int) -> String {
@@ -38,8 +39,12 @@ import UIKit
         return delegate?.settingHighlighted(key: settingKey(index: index)) ?? false
     }
 
+    private var displayModeValue: Int {
+        return delegate?.settingValue(key: HUDUserDefaultsKeyDisplayMode) ?? 0
+    }
+
     private var isFPSMode: Bool {
-        return delegate?.settingHighlighted(key: HUDUserDefaultsKeyDisplayMode) ?? false
+        return displayModeValue == 1
     }
 
     open override func settingEnabled(index: Int) -> Bool {

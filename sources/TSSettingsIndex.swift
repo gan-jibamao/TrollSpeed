@@ -69,10 +69,17 @@ enum TSSettingsIndex: Int, CaseIterable {
         }
     }
 
-    func subtitle(highlighted: Bool, restartRequired: Bool) -> String {
+    func subtitle(highlighted: Bool, restartRequired: Bool, displayMode: Int = 0) -> String {
         switch self {
         case .displayMode:
-            return highlighted ? NSLocalizedString("FPS", comment: "TSSettingsIndex") : NSLocalizedString("Speed", comment: "TSSettingsIndex")
+            switch displayMode {
+            case 1:
+                return NSLocalizedString("FPS", comment: "TSSettingsIndex")
+            case 2:
+                return NSLocalizedString("FPS + Speed", comment: "TSSettingsIndex")
+            default:
+                return NSLocalizedString("Speed", comment: "TSSettingsIndex")
+            }
         case .passthroughMode:
             if restartRequired {
                 return NSLocalizedString("Re-open to apply", comment: "TSSettingsIndex")
