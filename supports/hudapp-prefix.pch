@@ -12,15 +12,17 @@
 
 #if !TARGET_OS_SIMULATOR && !defined(DISABLE_PATH_REDIRECTION)
     #if __has_include(<roothide.h>)
+        /* roothide.h #undefs and poisons the legacy ROOT_PATH / JBROOT_PATH family,
+           so they have to be redefined here on top of the unified jbroot() API,
+           which behaves correctly for rootful, rootless and roothide alike. */
         #import <roothide.h>
-        #ifndef JBROOT_PATH_CSTRING
-            #define JBROOT_PATH_CSTRING(cPath) jbroot(cPath)
-        #endif
-        #ifndef JBROOT_PATH_NSSTRING
-            #define JBROOT_PATH_NSSTRING(nsPath) jbroot(nsPath)
-        #endif
-    #elif __has_include(<libroot.h>)
-        #import <libroot.h>
+        #undef JBROOT_PATH_CSTRING
+        #undef JBROOT_PATH_NSSTRING
+        #define JBROOT_PATH_CSTRING(cPath) jbroot(cPath)
+        #define JBROOT_PATH_NSSTRING(nsPath) jbroot(nsPath)
+    #elif __has_include(<libroot/libroot.h>)
+        /* libroot already provides JBROOT_PATH_CSTRING / JBROOT_PATH_NSSTRING. */
+        #import <libroot/libroot.h>
     #endif
 #else
     #define JBROOT_PATH_CSTRING(cPath) cPath

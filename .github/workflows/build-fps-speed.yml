@@ -63,15 +63,22 @@ jobs:
           ./gen-control.sh
           ./build.sh
 
-      # The rootful scheme needs the roothide APIs (upstream limitation), so it is
-      # allowed to fail; the tipa and the rootless/roothide debs still get uploaded.
-      - name: Build debs (roothide, rootless, rootful)
+      - name: Build debs (rootless, roothide, rootful)
         continue-on-error: true
         run: |
           cd $GITHUB_WORKSPACE/TrollSpeed
-          THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 gmake clean package
-          THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 gmake clean package
-          FINALPACKAGE=1 gmake clean package || true
+          set +e
+          for scheme in rootless roothide rootful; do
+            echo "::group::gmake package ($scheme)"
+            if [ "$scheme" = "rootful" ]; then
+              FINALPACKAGE=1 gmake clean package
+            else
+              THEOS_PACKAGE_SCHEME=$scheme FINALPACKAGE=1 gmake clean package
+            fi
+            echo ">> $scheme exit=$?"
+            echo "::endgroup::"
+          done
+          ls -la packages
 
       - name: List packages
         run: |

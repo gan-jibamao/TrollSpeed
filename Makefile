@@ -17,8 +17,11 @@ TrollSpeed_FILES += $(wildcard sources/*.swift)
 TrollSpeed_FILES += $(wildcard sources/SPLarkController/*.swift)
 TrollSpeed_FILES += $(wildcard sources/SnapshotSafeView/*.swift)
 
-ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
+# Self-contained jbroot()/rootfs() resolver, so the package does not depend on
+# libroot.dylib being present. Needed for rootful and rootless; harmless for roothide.
 TrollSpeed_FILES += libroot/dyn.c
+
+ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 TrollSpeed_LIBRARIES += roothide
 endif
 

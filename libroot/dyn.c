@@ -6,7 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <libroot.h>
+#include <stdbool.h>
+#include <unistd.h>
+
+#include <libroot/libroot.h>
 
 #if THEOS_PACKAGE_SCHEME_ROOTHIDE
 #include <roothide.h>
@@ -56,8 +59,6 @@ static const char *libroot_get_jbroot_prefix_fallback(void)
 
 #else
 
-#if IPHONEOS_ARM64
-
 static const char *libroot_get_root_prefix_fallback(void)
 {
 	return "";
@@ -65,30 +66,12 @@ static const char *libroot_get_root_prefix_fallback(void)
 
 static const char *libroot_get_jbroot_prefix_fallback(void)
 {
+#if THEOS_PACKAGE_SCHEME_ROOTLESS
 	return "/var/jb";
-}
-
 #else
-
-static const char *libroot_get_root_prefix_fallback(void)
-{
 	return "";
-}
-
-static const char *libroot_get_jbroot_prefix_fallback(void)
-{
-	if (access("/var/LIY", F_OK) == 0) {
-		// Legacy support for XinaA15 1.x (For those two people still using it)
-		// Technically this should be deprecated, but with the libroot solution it's not the hardest thing in the world to maintain
-		// So I decided to leave it in
-		return "/var/jb";
-	}
-	else {
-		return "";
-	}
-}
-
 #endif
+}
 #endif
 #endif
 
