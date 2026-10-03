@@ -7,7 +7,6 @@
 
 #import <spawn.h>
 #import <notify.h>
-#import <signal.h>
 #import <mach-o/dyld.h>
 
 #import "HUDHelper.h"
@@ -104,39 +103,33 @@ void HUDReloadIfStale(void)
     NSArray *parts = [[contents stringByTrimmingCharactersInSet:trimSet]
                       componentsSeparatedByString:@" "];
 
-    pid_t pid = (pid_t)[parts.firstObject intValue];
     NSString *recorded = (parts.count > 1) ? parts[1] : nil;
     NSString *current = HUDBuildVersionString();
 
-    if (pid <= 0)
-        return;
-
-    if (kill(pid, 0) != 0) {
-        /* The recorded process is gone; the pid file is just debris. */
-        [[NSFileManager defaultManager] removeItemAtPath:pidPath error:nil];
-        return;
-    }
-
-    /* No recorded build means the pid file predates this mechanism, so the
-       running HUD is necessarily from an older build. */
+    /* A record carrying no build predates this mechanism, so whatever wrote it
+       is necessarily running older code. */
     if (recorded.length && [recorded isEqualToString:current])
-        return;                     /* Same build, perfectly healthy */
+        return;                     /* Same build, healthy */
 
-    log_debug(OS_LOG_DEFAULT, "stale HUD %{public}d (%{public}@ != %{public}@), restarting",
-              pid, recorded ?: @"?", current);
+    /*
+     * Do NOT try to kill the HUD from here. It runs as root while this app runs
+     * as mobile, so kill() could only ever fail with EPERM - and probing with
+     * kill(pid, 0) is just as misleading, because EPERM still means the process
+     * is alive. Treating any failure as "process gone" would silently skip the
+     * repair entirely.
+     *
+     * SetHUDEnabled() spawns its helper with the root persona, so it can do the
+     * job properly. Drive the replacement through that instead: take the HUD
+     * down, then bring it straight back up from the newly installed binary.
+     */
+    log_debug(OS_LOG_DEFAULT, "stale HUD (%{public}@ != %{public}@), restarting",
+              recorded ?: @"legacy", current);
 
-    kill(pid, SIGKILL);
-    [[NSFileManager defaultManager] removeItemAtPath:pidPath error:nil];
+    SetHUDEnabled(NO);
 
-    /* It was up, so put it back up - now from the newly installed build.
-       launchd may already have respawned it through KeepAlive, so give that a
-       moment and only start a HUD ourselves if nothing came back; starting one
-       unconditionally would leave two processes owning the same window. */
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        if (!IsHUDEnabled()) {
-            SetHUDEnabled(YES);
-        }
+        SetHUDEnabled(YES);
     });
 }
 
