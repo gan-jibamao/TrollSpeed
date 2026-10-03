@@ -334,6 +334,7 @@ static NSAttributedString *attributedUploadPrefix = nil;
 static NSAttributedString *attributedDownloadPrefix = nil;
 static NSAttributedString *attributedInlineSeparator = nil;
 static NSAttributedString *attributedLineSeparator = nil;
+static NSAttributedString *attributedFPSPrefixSeparator = nil;
 
 static NSAttributedString *formattedAttributedString(BOOL isFocused)
 {
@@ -482,8 +483,11 @@ static NSAttributedString *formattedFPSAttributedString(BOOL isFocused)
 
 #pragma mark - FPS + Speed
 
-/* Renders the frame rate first, then the network speed block underneath it,
-   so both readouts stay on screen at the same time. */
+/* Renders the frame rate to the left of the network speed, so both readouts stay
+   on screen at the same time. Wherever the speed block itself already fits on one
+   line - the top-centre slot that sits on the Dynamic Island - the FPS shares that
+   line and is prefixed straight to the speed; where the speed block wraps onto
+   several lines, the FPS takes the line above it instead. */
 static NSAttributedString *formattedFPSWithSpeedAttributedString(BOOL isFocused)
 {
     @autoreleasepool
@@ -498,10 +502,14 @@ static NSAttributedString *formattedFPSWithSpeedAttributedString(BOOL isFocused)
 
         if (!attributedLineSeparator)
             attributedLineSeparator = [[NSAttributedString alloc] initWithString:@"\n" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
+        if (!attributedFPSPrefixSeparator)
+            attributedFPSPrefixSeparator = [[NSAttributedString alloc] initWithString:@"\u00A0\u00A0" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
+
+        BOOL speedFitsOnOneLine = ([speedString.string rangeOfString:@"\n"].location == NSNotFound);
 
         NSMutableAttributedString *mutableString = [[NSMutableAttributedString alloc] init];
         [mutableString appendAttributedString:fpsString];
-        [mutableString appendAttributedString:attributedLineSeparator];
+        [mutableString appendAttributedString:(speedFitsOnOneLine ? attributedFPSPrefixSeparator : attributedLineSeparator)];
         [mutableString appendAttributedString:speedString];
 
         return [mutableString copy];
@@ -652,6 +660,9 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
     needsFPSBaselineReset = YES;
     attributedUploadPrefix = nil;
     attributedDownloadPrefix = nil;
+    attributedInlineSeparator = nil;
+    attributedLineSeparator = nil;
+    attributedFPSPrefixSeparator = nil;
 
     [self removeAllAnimations];
     [self resetGestureRecognizers];
