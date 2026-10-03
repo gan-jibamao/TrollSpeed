@@ -1,11 +1,23 @@
 #!/bin/sh
+#
+# TrollSpeed
+#
+# Only unload the daemon when launchd actually knows about it. Testing for the
+# plist alone is not enough: on roothide the file lives under the per-boot
+# .jbroot container path while the label may never have been loaded, and
+# `launchctl unload` then reports "Could not find specified service".
+#
+# The HUD itself is stopped by postinst after unpacking, so an upgrade always
+# ends up running the newly installed binary.
+#
 
-if [ -f /Library/LaunchDaemons/ch.xxtou.hudservices.plist ]; then
-    launchctl unload /Library/LaunchDaemons/ch.xxtou.hudservices.plist || true
-fi
+LABEL="ch.xxtou.hudservices"
 
-if [ -f /var/jb/Library/LaunchDaemons/ch.xxtou.hudservices.plist ]; then
-    launchctl unload /var/jb/Library/LaunchDaemons/ch.xxtou.hudservices.plist || true
-fi
+for plist in /Library/LaunchDaemons/"$LABEL".plist \
+             /var/jb/Library/LaunchDaemons/"$LABEL".plist; do
+    [ -f "$plist" ] || continue
+    launchctl list "$LABEL" >/dev/null 2>&1 || continue
+    launchctl unload "$plist" >/dev/null 2>&1 || true
+done
 
 exit 0
