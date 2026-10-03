@@ -877,9 +877,21 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
     } else {
         attributedText = formattedAttributedString(_isFocused);
     }
+    /* A multiline UILabel only reports an accurate intrinsic size once it knows
+       how wide it may be. Left unset, the height stays at a single line and the
+       second line is clipped out of the frame - so it must be applied before the
+       text is measured, and the size cache invalidated so Auto Layout picks the
+       new height up. */
+    CGFloat wrapWidth = CGRectGetWidth(self.view.bounds) - 20.0;
+    if (wrapWidth > 0 && _speedLabel.preferredMaxLayoutWidth != wrapWidth) {
+        _speedLabel.preferredMaxLayoutWidth = wrapWidth;
+        [_speedLabel invalidateIntrinsicContentSize];
+    }
+
     if (attributedText) {
         [_speedLabel setAttributedText:attributedText];
     }
+    [_speedLabel invalidateIntrinsicContentSize];
     [_speedLabel sizeToFit];
 }
 
