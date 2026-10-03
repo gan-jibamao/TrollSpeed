@@ -129,7 +129,12 @@ static uint8_t HUD_SHOW_DOWNLOAD_SPEED_FIRST = 1;
 static uint8_t HUD_SHOW_SECOND_SPEED_IN_NEW_LINE = 0;
 static const char *HUD_UPLOAD_PREFIX = "▲";
 static const char *HUD_DOWNLOAD_PREFIX = "▼";
-static uint8_t HUD_DISPLAY_MODE = 0;  // 0=Speed, 1=FPS
+typedef NS_ENUM(uint8_t, HUDDisplayMode) {
+    HUDDisplayModeSpeed        = 0,  // Network speed only
+    HUDDisplayModeFPS          = 1,  // Frames per second only
+    HUDDisplayModeFPSWithSpeed = 2,  // Frames per second + network speed
+};
+static uint8_t HUD_DISPLAY_MODE = HUDDisplayModeSpeed;
 
 typedef struct {
     uint64_t inputBytes;
@@ -329,6 +334,7 @@ static NSAttributedString *attributedUploadPrefix = nil;
 static NSAttributedString *attributedDownloadPrefix = nil;
 static NSAttributedString *attributedInlineSeparator = nil;
 static NSAttributedString *attributedLineSeparator = nil;
+static NSAttributedString *attributedFPSPrefixSeparator = nil;
 
 static NSAttributedString *formattedAttributedString(BOOL isFocused)
 {
@@ -475,6 +481,41 @@ static NSAttributedString *formattedFPSAttributedString(BOOL isFocused)
     }
 }
 
+#pragma mark - FPS + Speed
+
+/* Renders the frame rate to the left of the network speed, so both readouts stay
+   on screen at the same time. Wherever the speed block itself already fits on one
+   line - the top-centre slot that sits on the Dynamic Island - the FPS shares that
+   line and is prefixed straight to the speed; where the speed block wraps onto
+   several lines, the FPS takes the line above it instead. */
+static NSAttributedString *formattedFPSWithSpeedAttributedString(BOOL isFocused)
+{
+    @autoreleasepool
+    {
+        NSAttributedString *fpsString = formattedFPSAttributedString(isFocused);
+        NSAttributedString *speedString = formattedAttributedString(isFocused);
+
+        if (!speedString)
+            return fpsString;   // Speed baseline is not ready yet
+        if (!fpsString)
+            return speedString;
+
+        if (!attributedLineSeparator)
+            attributedLineSeparator = [[NSAttributedString alloc] initWithString:@"\n" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
+        if (!attributedFPSPrefixSeparator)
+            attributedFPSPrefixSeparator = [[NSAttributedString alloc] initWithString:@"\u00A0\u00A0" attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:HUD_FONT_SIZE] }];
+
+        BOOL speedFitsOnOneLine = ([speedString.string rangeOfString:@"\n"].location == NSNotFound);
+
+        NSMutableAttributedString *mutableString = [[NSMutableAttributedString alloc] init];
+        [mutableString appendAttributedString:fpsString];
+        [mutableString appendAttributedString:(speedFitsOnOneLine ? attributedFPSPrefixSeparator : attributedLineSeparator)];
+        [mutableString appendAttributedString:speedString];
+
+        return [mutableString copy];
+    }
+}
+
 #pragma mark - HUDRootViewController
 
 @interface HUDRootViewController (Troll)
@@ -610,8 +651,7 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
         [_containerView setupContainerAsDisplayContentInScreenshots];
     }
 
-    BOOL displayMode = [self displayMode];
-    HUD_DISPLAY_MODE = displayMode;
+    HUD_DISPLAY_MODE = (uint8_t)[self displayMode];
 
     prevInputBytes = 0;
     prevOutputBytes = 0;
@@ -620,6 +660,9 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
     needsFPSBaselineReset = YES;
     attributedUploadPrefix = nil;
     attributedDownloadPrefix = nil;
+    attributedInlineSeparator = nil;
+    attributedLineSeparator = nil;
+    attributedFPSPrefixSeparator = nil;
 
     [self removeAllAnimations];
     [self resetGestureRecognizers];
@@ -669,11 +712,14 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
     return mode != nil ? [mode boolValue] : NO;
 }
 
-- (BOOL)displayMode
+- (NSInteger)displayMode
 {
     [self loadUserDefaults:NO];
     NSNumber *mode = [_userDefaults objectForKey:HUDUserDefaultsKeyDisplayMode];
-    return mode != nil ? [mode boolValue] : NO;
+    NSInteger value = mode != nil ? [mode integerValue] : HUDDisplayModeSpeed;
+    if (value < HUDDisplayModeSpeed || value > HUDDisplayModeFPSWithSpeed)
+        value = HUDDisplayModeSpeed;
+    return value;
 }
 
 - (BOOL)usesBitrate
@@ -835,14 +881,28 @@ static const CACornerMask kCornerMaskAll = kCALayerMinXMinYCorner | kCALayerMaxX
 {
     log_debug(OS_LOG_DEFAULT, "updateSpeedLabel");
     NSAttributedString *attributedText;
-    if (HUD_DISPLAY_MODE == 1) {
+    if (HUD_DISPLAY_MODE == HUDDisplayModeFPS) {
         attributedText = formattedFPSAttributedString(_isFocused);
+    } else if (HUD_DISPLAY_MODE == HUDDisplayModeFPSWithSpeed) {
+        attributedText = formattedFPSWithSpeedAttributedString(_isFocused);
     } else {
         attributedText = formattedAttributedString(_isFocused);
     }
+    /* A multiline UILabel only reports an accurate intrinsic size once it knows
+       how wide it may be. Left unset, the height stays at a single line and the
+       second line is clipped out of the frame - so it must be applied before the
+       text is measured, and the size cache invalidated so Auto Layout picks the
+       new height up. */
+    CGFloat wrapWidth = CGRectGetWidth(self.view.bounds) - 20.0;
+    if (wrapWidth > 0 && _speedLabel.preferredMaxLayoutWidth != wrapWidth) {
+        _speedLabel.preferredMaxLayoutWidth = wrapWidth;
+        [_speedLabel invalidateIntrinsicContentSize];
+    }
+
     if (attributedText) {
         [_speedLabel setAttributedText:attributedText];
     }
+    [_speedLabel invalidateIntrinsicContentSize];
     [_speedLabel sizeToFit];
 }
 

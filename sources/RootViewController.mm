@@ -604,8 +604,25 @@ static const CGFloat _gAuthorLabelBottomConstraintConstantRegular = -80.f;
     return mode != nil ? [mode boolValue] : NO;
 }
 
+- (NSInteger)settingValueWithKey:(NSString * _Nonnull)key
+{
+    [self loadUserDefaults:NO];
+    NSNumber *value = [_userDefaults objectForKey:key];
+    return value != nil ? [value integerValue] : 0;
+}
+
 - (void)settingDidSelectWithKey:(NSString * _Nonnull)key
 {
+    if ([key isEqualToString:HUDUserDefaultsKeyDisplayMode])
+    {
+        /* Speed (0) -> FPS (1) -> FPS + Speed (2) -> Speed (0) */
+        NSInteger mode = [self settingValueWithKey:key];
+        mode = (mode + 1) % 3;
+        [_userDefaults setObject:@(mode) forKey:key];
+        [self saveUserDefaults];
+        return;
+    }
+
     BOOL highlighted = [self settingHighlightedWithKey:key];
     [_userDefaults setObject:@(!highlighted) forKey:key];
     [self saveUserDefaults];
